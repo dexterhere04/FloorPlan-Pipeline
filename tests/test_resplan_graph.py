@@ -1,6 +1,8 @@
 import pickle
 from graphs.for_resplan.resplan_adapter import resplan_to_floorgraph
 import random
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from dataset.resplan_utils import plot_plan
 # load one ResPlan sample
