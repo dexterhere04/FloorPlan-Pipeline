@@ -1,5 +1,5 @@
 from graphs.schema import RoomNode, RoomEdge, FloorplanGraph
-from resplan_utils import plan_to_graph
+from dataset.resplan_utils import plan_to_graph
 
 
 def resplan_to_floorgraph(plan):
