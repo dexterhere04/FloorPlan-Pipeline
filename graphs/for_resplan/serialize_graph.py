@@ -13,7 +13,7 @@ def graph_to_canonical_text(graph):
     # Edges
     for e in graph.edges:
         if e.direction:
-            lines.append(f"{e.src} {e.relation} {e.direction} {e.dist}")
+            lines.append(f"{e.src} {e.relation} {e.direction} {e.dst}")
         else:
             lines.append(f"{e.src} {e.relation} {e.dst}")
 
