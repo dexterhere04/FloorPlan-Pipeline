@@ -1,0 +1,7 @@
+shapely>=2.0
+geopandas>=0.14
+matplotlib>=3.9
+networkx>=3.0
+numpy>=1.21
+opencv-python>=4.8
+pandas>=2.0
