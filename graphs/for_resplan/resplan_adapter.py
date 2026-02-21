@@ -41,7 +41,7 @@ def resplan_to_floorgraph(plan):
             dy = c2[1] - c1[1]
 
             if abs(dx) > abs(dy):
-                direction = "right_of" if dx > 0 else "left_of"
+                direction = "left_of" if dx > 0 else "right_of"
             else:
                 direction = "below" if dy > 0 else "above"
         edges.append(
