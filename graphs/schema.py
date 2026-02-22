@@ -13,7 +13,7 @@ class RoomNode:
     role: Optional[str] = None  # master, guest, etc. (future)
     area: Optional[float] = None
     centroid: Optional[Tuple[float, float]] = None
-
+    bbox: Optional[Tuple[float,float]]=None
 
 # -----------------------------
 # Edge: Spatial / connectivity relation
@@ -23,7 +23,7 @@ class RoomNode:
 class RoomEdge:
     src: str
     dst: str
-    relation: str               # adjacency | via_door | via_window | direct
+    relation: str               # adjacency | via_door | direct
     direction: Optional[str] = None  # left_of | right_of | above | below (optional future)
 
 

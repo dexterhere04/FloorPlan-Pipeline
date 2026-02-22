@@ -19,13 +19,16 @@ def resplan_to_floorgraph(plan):
             continue
 
         c = geom.centroid
-
+        minx, miny, maxx, maxy = geom.bounds
+        w = maxx - minx
+        h = maxy - miny
         nodes.append(
             RoomNode(
                 id=nid,
                 type=data.get("type"),
                 area=data.get("area"),
                 centroid=(c.x, c.y),
+                bbox=(w, h) 
             )
         )
 

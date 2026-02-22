@@ -33,11 +33,14 @@ def floorgraph_to_numeric(graph, plan_width):
         cy /= plan_width
 
         # bbox approx from area
-        size = np.sqrt(n.area or 0.0) / plan_width
+        bw, bh = n.bbox if n.bbox else (0.0, 0.0)
+
+        w = bw / plan_width
+        h = bh / plan_width        
 
         feat = np.concatenate([
             type_vec,
-            [area, cx, cy, size, size]
+            [area, cx, cy, w, h]
         ])
 
         nodes.append(feat)
