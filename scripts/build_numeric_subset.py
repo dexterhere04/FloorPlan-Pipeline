@@ -52,7 +52,8 @@ data= {
     "nodes": nodes_list,
     "edge_index": edge_index_list,
     "edge_attr": edge_attr_list,
-    "text": text_list
+    "text": text_list,
+    "plan_idx": subset_idx
 }
 
 with open(OUT,"wb") as f:
