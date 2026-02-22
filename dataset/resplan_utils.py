@@ -246,30 +246,36 @@ def plot_plan(plan: Dict[str, Any],
 
 def plan_to_graph(plan: Dict[str, Any],
                   buffer_factor: float = 0.75) -> nx.Graph:
-    """Create a simple room graph: nodes are room parts; edges denote adjacency or connections via door/window."""
+    """Create room graph: nodes are rooms; edges denote adjacency or door connectivity."""
     plan = normalize_keys(plan)
     G = nx.Graph()
     ww = float(plan.get("wall_width", 0.1) or 0.1)
     buf = max(ww * buffer_factor, 0.01)
 
-    nodes_by_type: Dict[str, List[str]] = {k: [] for k in ["living","kitchen","bedroom","bathroom","balcony","front_door"]}
+    nodes_by_type: Dict[str, List[str]] = {
+        k: [] for k in ["living","kitchen","bedroom","bathroom","balcony","front_door"]
+    }
 
-    # rooms
+    # -----------------------------
+    # Nodes
+    # -----------------------------
     for room_type in ["living","kitchen","bedroom","bathroom","balcony"]:
         parts = get_geometries(plan.get(room_type))
-        # for living, keep separate parts; user can union beforehand if desired
         for i, geom in enumerate(parts):
             if isinstance(geom, Polygon) and not geom.is_empty:
                 nid = f"{room_type}_{i}"
                 G.add_node(nid, geometry=geom, type=room_type, area=geom.area)
                 nodes_by_type[room_type].append(nid)
 
-    # front door (may be line/polygon)
     for i, geom in enumerate(get_geometries(plan.get("front_door"))):
         nid = f"front_door_{i}"
-        G.add_node(nid, geometry=geom, type="front_door", area=getattr(geom, "area", 0.0))
+        G.add_node(nid, geometry=geom, type="front_door",
+                   area=getattr(geom, "area", 0.0))
         nodes_by_type["front_door"].append(nid)
-    # living room to living room relations
+
+    # -----------------------------
+    # Living parts → same space
+    # -----------------------------
     living_nodes = nodes_by_type["living"]
     for i in range(len(living_nodes)):
         for j in range(i + 1, len(living_nodes)):
@@ -278,11 +284,9 @@ def plan_to_graph(plan: Dict[str, Any],
             if not G.has_edge(u, v):
                 G.add_edge(u, v, type="direct")
 
-    doors  = get_geometries(plan.get("door"))
-    wins   = get_geometries(plan.get("window"))
-    conns  = [(d, "via_door") for d in doors] + [(w, "via_window") for w in wins]
-
-    # front_door → living
+    # -----------------------------
+    # Front door → living
+    # -----------------------------
     for fd in nodes_by_type["front_door"]:
         fd_geom = G.nodes[fd]["geometry"]
         for gen in nodes_by_type["living"]:
@@ -290,33 +294,42 @@ def plan_to_graph(plan: Dict[str, Any],
             if fd_geom.intersects(gen_geom.buffer(buf)):
                 G.add_edge(fd, gen, type="direct")
 
-    # adjacency: kitchen/bedroom ↔ living
+    # -----------------------------
+    # Adjacency: kitchen/bedroom ↔ living
+    # -----------------------------
     for room_type in ["kitchen","bedroom"]:
         for rn in nodes_by_type[room_type]:
             rgeom = G.nodes[rn]["geometry"].buffer(buf)
             for gen in nodes_by_type["living"]:
                 gen_geom = G.nodes[gen]["geometry"]
-                if rgeom.buffer(buf).intersects(gen_geom.buffer(buf)):
-                    G.add_edge(rn, gen, type="adjacency")
+                if rgeom.intersects(gen_geom.buffer(buf)):
+                    if not G.has_edge(rn, gen):
+                        G.add_edge(rn, gen, type="adjacency")
 
-    # bathroom & balcony connections via door/window to living/bedroom
+    # -----------------------------
+    # Door connectivity (no windows)
+    # -----------------------------
+    doors = get_geometries(plan.get("door"))
     all_room_types = ["living","kitchen","bedroom","bathroom","balcony"]
-    for cgeom, ctype in conns:
+
+    for dgeom in doors:
         touched_rooms = []
-        cbuf = cgeom.buffer(buf)
+        dbuf = dgeom.buffer(buf)
+
         for rtype in all_room_types:
             for rn in nodes_by_type[rtype]:
                 rgeom = G.nodes[rn]["geometry"].buffer(buf)
-                if cbuf.intersects(rgeom):
+                if dbuf.intersects(rgeom):
                     touched_rooms.append(rn)
 
-        # connect all room pairs sharing this connector
+        # connect all pairs sharing this door
         for i in range(len(touched_rooms)):
             for j in range(i+1, len(touched_rooms)):
                 u = touched_rooms[i]
                 v = touched_rooms[j]
                 if not G.has_edge(u, v):
-                    G.add_edge(u, v, type=ctype)
+                    G.add_edge(u, v, type="via_door")
+
     return G
 
 # -----------------------------
