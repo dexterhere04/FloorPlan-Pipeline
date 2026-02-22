@@ -269,6 +269,14 @@ def plan_to_graph(plan: Dict[str, Any],
         nid = f"front_door_{i}"
         G.add_node(nid, geometry=geom, type="front_door", area=getattr(geom, "area", 0.0))
         nodes_by_type["front_door"].append(nid)
+    # living room to living room relations
+    living_nodes = nodes_by_type["living"]
+    for i in range(len(living_nodes)):
+        for j in range(i + 1, len(living_nodes)):
+            u = living_nodes[i]
+            v = living_nodes[j]
+            if not G.has_edge(u, v):
+                G.add_edge(u, v, type="direct")
 
     doors  = get_geometries(plan.get("door"))
     wins   = get_geometries(plan.get("window"))
