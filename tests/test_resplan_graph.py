@@ -10,7 +10,7 @@ with open("dataset/ResPlan.pkl", "rb") as f:
     plans = pickle.load(f)
 
 print(f'Loaded {len(plans)} plans')
-idx = random.randrange(len(plans))
+idx = 3533
 
 plan=plans[idx]
 

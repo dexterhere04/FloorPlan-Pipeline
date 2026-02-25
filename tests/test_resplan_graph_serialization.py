@@ -9,7 +9,7 @@ from dataset.resplan_utils import plot_plan
 
 with open("dataset/ResPlan.pkl", "rb") as f:
     plans = pickle.load(f)
-idx = random.randrange(len(plans))
+idx = 3533
 graph = resplan_to_floorgraph(plans[idx])
 text=graph_to_canonical_text(graph)
 
