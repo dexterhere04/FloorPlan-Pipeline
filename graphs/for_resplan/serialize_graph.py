@@ -11,7 +11,7 @@ def graph_to_canonical_text(graph):
         lines.append(f"{n.id}: {n.type}")
 
     # Edges
-    for e in graph.edges:
+    for e in sorted(graph.edges, key=lambda x: (x.src, x.dst)):
         if e.direction:
             lines.append(f"{e.src} {e.relation} {e.direction} {e.dst}")
         else:
