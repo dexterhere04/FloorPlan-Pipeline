@@ -45,28 +45,31 @@ bedroom_0 via_door above bathroom_0
 front_door_0 direct right_of living_0
 
 IMPORTANT RULES:
-- Use unique IDs for each room (e.g., living_0, kitchen_0, bedroom_0)
+- Include ALL room types from the expanded list (nodes should represent all expanded rooms)
+- Use unique IDs for each room (e.g., living_0, kitchen_0, bedroom_0, bedroom_1)
 - Only use the exact room types listed above (lowercase, with underscores)
 - Only use the exact relation types listed above
 - Only use the exact direction types listed above when applicable
-- Create meaningful edges that reflect the spatial layout
-- Ensure the front_door is connected to the living area or entrance space
-- Include enough edges to define the complete spatial layout
+- Create edges only when the original user prompt explicitly states a relationship
+- Do not infer, invent, or complete any missing relationships
+- If the original prompt does not explicitly mention any room-to-room relationships, output no edges
 - Sort nodes alphabetically by ID for deterministic output
 - The output MUST be parseable as a structured graph
 
-Generate the complete graph with all rooms and their spatial relationships."""
+Generate only the explicitly mentioned relationships from the original prompt, but include all room types in the expanded list as nodes."""
 
 
-GRAPH_GENERATOR_USER = """Based on this expanded floorplan description:
-
+GRAPH_GENERATOR_USER = """Expanded floorplan rooms (ALL of these must appear as nodes):
 {expanded_prompt}
 
-Original user request:
+Original user request (use this to identify explicit relationships only):
 {original_prompt}
 
-Generate a complete floorplan graph with all rooms and their spatial relationships.
-Output the graph in the canonical serialization format."""
+TASK:
+1. Include ALL rooms listed in the expanded floorplan rooms as nodes (one node per room type; e.g., if 'bedroom' appears once, create bedroom_0; if mentioned twice, create bedroom_0 and bedroom_1)
+2. Extract ONLY the explicit room-to-room relationships mentioned in the original user request
+3. Do NOT infer or create any additional relationships
+4. Output in the canonical format"""
 
 
 def create_graph_generator(llm: ChatOpenAI):

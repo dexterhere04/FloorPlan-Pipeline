@@ -1,9 +1,64 @@
 from langchain_openai import ChatOpenAI
-from langchain_core.runnables import RunnableLambda
 from text_to_graph.prompt_expander import create_prompt_expander, ExpandedPrompt
 from text_to_graph.graph_generator import create_graph_generator, parse_graph_output
 from text_to_graph.schemas import FloorplanGraphSchema
+from text_to_graph.edge_extractor import (
+    create_edge_extractor,
+    ExplicitEdge,
+    ExplicitEdgeExtraction,
+)
 from graphs.schema import RoomNode, RoomEdge, FloorplanGraph
+
+
+def _matches_extracted_edge(
+    edge: RoomEdge,
+    source_type: str,
+    destination_type: str,
+    extracted_edge: ExplicitEdge,
+) -> bool:
+    relation_match = (
+        extracted_edge.relation is None or edge.relation == extracted_edge.relation
+    )
+    direction_match = (
+        extracted_edge.direction is None or edge.direction == extracted_edge.direction
+    )
+
+    if not relation_match or not direction_match:
+        return False
+
+    if extracted_edge.direction is not None:
+        return (
+            source_type == extracted_edge.src_type
+            and destination_type == extracted_edge.dst_type
+        )
+
+    return (
+        (source_type == extracted_edge.src_type and destination_type == extracted_edge.dst_type)
+        or (source_type == extracted_edge.dst_type and destination_type == extracted_edge.src_type)
+    )
+
+
+def _filter_edges_by_extracted(
+    graph_schema: FloorplanGraphSchema, extracted_edges: list[ExplicitEdge]
+) -> FloorplanGraphSchema:
+    if not extracted_edges:
+        return graph_schema.model_copy(update={"edges": []})
+
+    room_type_by_id = {room.id: room.type for room in graph_schema.rooms}
+    filtered_edges = []
+    for edge in graph_schema.edges:
+        source_type = room_type_by_id.get(edge.src)
+        destination_type = room_type_by_id.get(edge.dst)
+        if not source_type or not destination_type:
+            continue
+
+        if any(
+            _matches_extracted_edge(edge, source_type, destination_type, extracted_edge)
+            for extracted_edge in extracted_edges
+        ):
+            filtered_edges.append(edge)
+
+    return graph_schema.model_copy(update={"edges": filtered_edges})
 
 
 class FloorplanWorkflow:
@@ -15,33 +70,50 @@ class FloorplanWorkflow:
     ):
         self.llm = ChatOpenAI(api_key=api_key, model=model, base_url=base_url)
         self.expander = create_prompt_expander(self.llm)
+        self.edge_extractor = create_edge_extractor(self.llm)
         self.generator = create_graph_generator(self.llm)
 
     def expand_prompt(self, user_prompt: str) -> ExpandedPrompt:
         return self.expander.invoke({"user_prompt": user_prompt})
 
+    def extract_explicit_edges(
+        self, user_prompt: str, expanded_prompt: ExpandedPrompt
+    ) -> ExplicitEdgeExtraction:
+        return self.edge_extractor.invoke(
+            {
+                "expanded_rooms": expanded_prompt.all_rooms,
+                "user_prompt": user_prompt,
+            }
+        )
+
     def generate_graph(
-        self, expanded_prompt: ExpandedPrompt, original_prompt: str
+        self,
+        expanded_prompt: ExpandedPrompt,
+        original_prompt: str,
+        extracted_edges: ExplicitEdgeExtraction,
     ) -> FloorplanGraphSchema:
         result = self.generator.invoke(
             {
-                "expanded_prompt": expanded_prompt.all_rooms,
+                "expanded_prompt": ", ".join(expanded_prompt.all_rooms),
                 "original_prompt": original_prompt,
             }
         )
 
         if isinstance(result, dict):
             if "raw" in result:
-                return parse_graph_output(result["raw"])
+                graph_schema = parse_graph_output(result["raw"])
+                return _filter_edges_by_extracted(graph_schema, extracted_edges.edges)
             if "parsed" in result:
-                return result["parsed"]
+                return _filter_edges_by_extracted(result["parsed"], extracted_edges.edges)
 
         raw_text = getattr(result, "content", result)
-        return parse_graph_output(raw_text)
+        graph_schema = parse_graph_output(raw_text)
+        return _filter_edges_by_extracted(graph_schema, extracted_edges.edges)
 
     def run(self, user_prompt: str) -> FloorplanGraph:
         expanded = self.expand_prompt(user_prompt)
-        graph_schema = self.generate_graph(expanded, user_prompt)
+        extracted_edges = self.extract_explicit_edges(user_prompt, expanded)
+        graph_schema = self.generate_graph(expanded, user_prompt, extracted_edges)
 
         nodes = [
             RoomNode(id=room.id, type=room.type, role=room.role)
@@ -62,7 +134,8 @@ class FloorplanWorkflow:
 
     def run_with_text_output(self, user_prompt: str) -> tuple[str, FloorplanGraph]:
         expanded = self.expand_prompt(user_prompt)
-        graph_schema = self.generate_graph(expanded, user_prompt)
+        extracted_edges = self.extract_explicit_edges(user_prompt, expanded)
+        graph_schema = self.generate_graph(expanded, user_prompt, extracted_edges)
 
         serialized_lines = []
         for room in sorted(graph_schema.rooms, key=lambda x: x.id):

@@ -69,8 +69,6 @@ def main():
     print(user_prompt)
     print()
 
-    serialized_graph, graph = workflow.run_with_text_output(user_prompt)
-
     print("=" * 60)
     print("EXPANDED PROMPT (from expander agent):")
     print("=" * 60)
@@ -80,6 +78,17 @@ def main():
     print(f"All rooms: {expanded.all_rooms}")
     print(f"Reasoning: {expanded.reasoning}")
     print()
+
+    print("=" * 60)
+    print("EXPLICIT EDGES (from edge extractor agent):")
+    print("=" * 60)
+    extracted_edges = workflow.extract_explicit_edges(user_prompt, expanded)
+    print(f"Extracted edges: {len(extracted_edges.edges)}")
+    for edge in extracted_edges.edges:
+        print(f"  - {edge.src_type} -> {edge.dst_type} (relation: {edge.relation}, direction: {edge.direction})")
+    print()
+
+    serialized_graph, graph = workflow.run_with_text_output(user_prompt)
 
     print("=" * 60)
     print("SERIALIZED GRAPH:")
