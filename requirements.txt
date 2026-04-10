@@ -44,3 +44,12 @@ tornado==6.5.4
 tqdm==4.67.3
 traitlets==5.14.3
 wcwidth==0.6.0
+diffusers
+langchain-core
+langchain-openai
+pydantic
+python-dotenv
+requests
+sentence-transformers
+torch
+torch-geometric

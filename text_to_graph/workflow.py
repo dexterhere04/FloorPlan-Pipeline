@@ -1,4 +1,6 @@
 from langchain_openai import ChatOpenAI
+from pathlib import Path
+
 from text_to_graph.prompt_expander import create_prompt_expander, ExpandedPrompt
 from text_to_graph.graph_generator import create_graph_generator, parse_graph_output
 from text_to_graph.schemas import FloorplanGraphSchema
@@ -7,6 +9,8 @@ from text_to_graph.edge_extractor import (
     ExplicitEdge,
     ExplicitEdgeExtraction,
 )
+from text_to_graph.edge_completion import EdgeCompletionPredictor
+from text_to_graph.edge_completion import CompletionConfig
 from graphs.schema import RoomNode, RoomEdge, FloorplanGraph
 
 
@@ -67,11 +71,29 @@ class FloorplanWorkflow:
         api_key: str,
         model: str = "gpt-4o",
         base_url: str | None = None,
+        edge_completion_model_path: str | None = None,
+        edge_completion_threshold: float = 0.45,
+        edge_completion_max_added_edges: int = 24,
     ):
         self.llm = ChatOpenAI(api_key=api_key, model=model, base_url=base_url)
         self.expander = create_prompt_expander(self.llm)
         self.edge_extractor = create_edge_extractor(self.llm)
         self.generator = create_graph_generator(self.llm)
+
+        self.edge_completer = None
+        default_path = Path("trained_models/best_edge_completion.pt")
+        model_path = Path(edge_completion_model_path) if edge_completion_model_path else default_path
+        if model_path.exists():
+            try:
+                self.edge_completer = EdgeCompletionPredictor(
+                    model_path,
+                    config=CompletionConfig(
+                        threshold=edge_completion_threshold,
+                        max_added_edges=edge_completion_max_added_edges,
+                    ),
+                )
+            except Exception:
+                self.edge_completer = None
 
     def expand_prompt(self, user_prompt: str) -> ExpandedPrompt:
         return self.expander.invoke({"user_prompt": user_prompt})
@@ -102,13 +124,22 @@ class FloorplanWorkflow:
         if isinstance(result, dict):
             if "raw" in result:
                 graph_schema = parse_graph_output(result["raw"])
-                return _filter_edges_by_extracted(graph_schema, extracted_edges.edges)
+                filtered = _filter_edges_by_extracted(graph_schema, extracted_edges.edges)
+                if self.edge_completer is not None:
+                    return self.edge_completer.complete_graph(filtered)
+                return filtered
             if "parsed" in result:
-                return _filter_edges_by_extracted(result["parsed"], extracted_edges.edges)
+                filtered = _filter_edges_by_extracted(result["parsed"], extracted_edges.edges)
+                if self.edge_completer is not None:
+                    return self.edge_completer.complete_graph(filtered)
+                return filtered
 
         raw_text = getattr(result, "content", result)
         graph_schema = parse_graph_output(raw_text)
-        return _filter_edges_by_extracted(graph_schema, extracted_edges.edges)
+        filtered = _filter_edges_by_extracted(graph_schema, extracted_edges.edges)
+        if self.edge_completer is not None:
+            return self.edge_completer.complete_graph(filtered)
+        return filtered
 
     def run(self, user_prompt: str) -> FloorplanGraph:
         expanded = self.expand_prompt(user_prompt)

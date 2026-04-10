@@ -18,6 +18,12 @@ all_edges = []
 all_edge_index = []
 all_text = []
 
+
+def to_object_array(items):
+    array = np.empty(len(items), dtype=object)
+    array[:] = items
+    return array
+
 for plan in tqdm(plans):
     graph = resplan_to_floorgraph(plan)
     width = get_plan_width(plan)
@@ -32,10 +38,10 @@ for plan in tqdm(plans):
 
 np.savez(
     OUT,
-    nodes=all_nodes,
-    edge_index=all_edge_index,
-    edge_attr=all_edges,
-    text=all_text
+    nodes=to_object_array(all_nodes),
+    edge_index=to_object_array(all_edge_index),
+    edge_attr=to_object_array(all_edges),
+    text=to_object_array(all_text)
 )
 
 print("Saved numeric dataset:", OUT)
