@@ -1,6 +1,32 @@
 # FloorPlan-Pipeline
 
-An end-to-end pipeline that converts natural language descriptions into structured floorplan graphs and spatial layouts. This project combines LLM-powered room planning with Graph Neural Networks to predict room positions and dimensions.
+> Generate structured floorplans from plain-English prompts using LLMs + Graph Neural Networks.
+
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
+![License](https://img.shields.io/badge/License-GPLv3-blue)
+
+An end-to-end pipeline that converts natural language descriptions into floorplan graphs and predicted room layouts.
+
+## 📌 At a Glance
+
+- Turn prompts like _"2BHK with open kitchen and balcony"_ into a structured graph
+- Convert graphs into GNN-ready tensors
+- Predict room boxes (`cx, cy, w, h`) with a trained model
+- Visualize outputs in notebooks
+
+## 📚 Table of Contents
+
+- [🎯 Overview](#-overview)
+- [🏗️ Architecture](#️-architecture)
+- [🚀 Getting Started](#-getting-started)
+- [📊 Project Structure](#-project-structure)
+- [🔑 Key Workflows](#-key-workflows)
+- [🧪 Testing](#-testing)
+- [📚 Documentation](#-documentation)
+- [🔧 Configuration](#-configuration)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
 
 ## 🎯 Overview
 
@@ -9,7 +35,7 @@ FloorPlan-Pipeline is a comprehensive system for automated floorplan generation 
 1. **Expands user prompts** into complete room specifications using LLMs
 2. **Generates topological graphs** representing room relationships and adjacencies
 3. **Converts graphs to numerical tensors** for machine learning processing
-4. **Predicts spatial layouts** using Graph Neural Networks
+4. **Predicts spatial layouts** using Graph Neural Networks (GNN)
 5. **Visualizes floorplans** with room boxes and relationships
 
 ### Use Cases
@@ -118,7 +144,7 @@ Room Coordinates [cx, cy, w, h]
    pip install -r requirements.txt
    ```
 
-4. **Install additional ML dependencies** (if not in requirements)
+4. **Install additional ML dependencies** (if needed for your environment)
    ```bash
    pip install torch torchvision torchaudio
    pip install torch_geometric
@@ -127,8 +153,7 @@ Room Coordinates [cx, cy, w, h]
 
 5. **Set up environment variables**
    ```bash
-   cp .env.example .env  # Or create .env manually
-   # Add your API credentials to .env:
+   # Create a .env file in the repo root and add:
    # - OPENAI_API_KEY or NVIDIA_API_KEY
    # - FLOORPLAN_LLM_MODEL (optional, defaults to Mistral)
    # - OPENAI_BASE_URL (optional, for custom endpoints)
@@ -185,6 +210,12 @@ graph = FloorplanGraph(
 # Serialize to text
 serialized = graph_to_canonical_text(graph)
 print(serialized)
+```
+
+#### 2.5 Minimal sanity check
+
+```bash
+python -m pytest tests/ -q
 ```
 
 #### 3. Using the Interactive Example Script
