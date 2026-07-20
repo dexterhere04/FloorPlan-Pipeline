@@ -1,442 +1,365 @@
 # FloorPlan-Pipeline
 
-An end-to-end pipeline that converts natural language descriptions into structured floorplan graphs and spatial layouts. This project combines LLM-powered room planning with Graph Neural Networks to predict room positions and dimensions.
+End-to-end system that converts **natural language descriptions** into **structured floorplan graphs with predicted spatial layouts and architectural renderings**.
 
-## 🎯 Overview
+---
 
-FloorPlan-Pipeline is a comprehensive system for automated floorplan generation from text descriptions. The pipeline:
+## Visual Overview
 
-1. **Expands user prompts** into complete room specifications using LLMs
-2. **Generates topological graphs** representing room relationships and adjacencies
-3. **Converts graphs to numerical tensors** for machine learning processing
-4. **Predicts spatial layouts** using Graph Neural Networks
-5. **Visualizes floorplans** with room boxes and relationships
+### Final Output: Stable Diffusion + ControlNet Floorplan
+![SD Generated Floorplan](docs/readme/workflow_cell24_1.png)
 
-### Use Cases
+*Architectural floorplan generated from predicted layout boxes using Stable Diffusion v1.5 with ControlNet segmentation conditioning.*
 
-- Automated architectural planning from text descriptions
-- Real estate floorplan generation from written specifications
-- Interior design space planning
-- Building information modeling (BIM) assistance
-- Layout optimization and constraint satisfaction
+### Topological Graph on Real Floorplan
+![Graph Overlay](docs/readme/training_cell47_0.png)
 
-## 🏗️ Architecture
+*Room-adjacency graph (red edges, yellow nodes) overlaid on ground-truth ResPlan floorplan. Each edge encodes a spatial relationship (adjacency, via_door, direct).*
 
-### Workflow Pipeline
+### Layout Prediction: Ground Truth vs. Predicted Boxes
+![GT vs Prediction](docs/readme/training_cell19_0.png)
 
-```
-Natural Language Input
-        ↓
-    Prompt Expansion (LLM)
-        ↓
-    Graph Generation (LLM)
-        ↓
-    FloorplanGraph (Canonical)
-        ↓
-    Numerical Tensors (GNN-ready)
-        ↓
-    RoughLayoutGNN (PyTorch)
-        ↓
-    Predicted Spatial Layout
-        ↓
-    Visualization & Output
-```
+*Green boxes = ground truth room positions. Red boxes = GNN-predicted layouts [cx, cy, w, h] per room. The RoughLayoutGNN was trained on 100 ResPlan floorplans.*
 
-### Key Components
+### Control Image Channels for Diffusion
+![Control Image](docs/readme/raster_cell11_0.png)
 
-#### Text-to-Graph Pipeline (`text_to_graph/`)
-- **`workflow.py`**: Orchestrates prompt expansion, graph generation, and parsing
-- **`prompt_expander.py`**: Expands user prompts into complete room descriptions with spatial context
-- **`graph_generator.py`**: Converts expanded prompts into structured room graphs with relationships
-- **`schemas.py`**: Pydantic models for LLM exchange format and validation
+*Three-channel control image fed to ControlNet: Rooms (Red), Adjacency lines (Green), Room types (Blue). The diffusion model uses these as conditioning signals.*
 
-#### Graph Processing (`graphs/`)
-- **`schema.py`**: Core data classes (`RoomNode`, `RoomEdge`, `FloorplanGraph`)
-- **`numerical_graph.py`**: Converts graph objects to numeric tensors for GNN input
-- **`for_resplan/`**: ResPlan dataset integration and graph serialization
-  - `serialize_graph.py`: Deterministic canonical text serialization
-  - `resplan_adapter.py`: ResPlan dataset adapter
-- **`for_rplan/`**: RPlan dataset integration (reference/legacy)
+---
 
-#### Model Training & Inference
-- **`complete_workflow.ipynb`**: End-to-end Jupyter notebook demonstrating the full pipeline
-- **`model_notebook_training/model_testing.ipynb`**: GNN model training, evaluation, and visualization
-- **`best_model.pt`**: Pre-trained checkpoint for layout prediction
-
-#### Dataset & Utilities (`dataset/`)
-- **`resplan_utils.py`**: Utilities for ResPlan dataset visualization and processing
-- **`__init__.py`**: Package initialization
-
-### Model Architecture
-
-The **RoughLayoutGNN** predicts 4D bounding boxes (center_x, center_y, width, height) for each room:
+## Pipeline Overview
 
 ```
-Graph Input (Node & Edge Features)
-    ↓
-GINEConv Layer 1 (node_dim → hidden)
-    ↓
-GINEConv Layer 2 (hidden → hidden)
-    ↓
-GINEConv Layer 3 (hidden → hidden)
-    ↓
-MLP Head (hidden → 4D box output)
-    ↓
-Room Coordinates [cx, cy, w, h]
+User Prompt ──→ LLM Expansion ──→ Edge Extraction ──→ Graph Generation ──→ Edge Completion (GNN)
+                                                                                  │
+                                                                                  ▼
+          Floorplan Rasterization ←── Stable Diffusion + ControlNet ←── Layout Prediction (GNN)
 ```
 
-**Input Features:**
-- **Node features** (11D): Room type (one-hot encoded across 6 room types), role
-- **Edge features** (10D): Relationship type, spatial direction, adjacency information
+| Stage | Module | Description |
+|---|---|---|
+| 1. Prompt Expansion | `prompt_expander.py` | LLM expands natural language into a complete set of room types with reasoning and spatial context |
+| 2. Edge Extraction | `edge_extractor.py` | LLM extracts only explicitly stated room-to-room relationships from the user prompt |
+| 3. Graph Generation | `graph_generator.py` | LLM generates a canonical graph (nodes + edges) in deterministic text format |
+| 4. Edge Completion | `edge_completion.py` | Trained GNN predicts missing edges, ensuring topological validity and connectivity |
+| 5. Geometry Inference | `complete_workflow.ipynb` | Sentence-transformer prompt embedding + dataset-calibrated priors → area, centroid, bbox per room |
+| 6. Layout Prediction | `model_testing.ipynb` | RoughLayoutGNN (3× GINEConv + MLP head) predicts 4D room boxes [cx, cy, w, h] |
+| 7. Rasterization | `rough_layout_to_floorplan.ipynb` | Stable Diffusion + ControlNet converts predicted layouts into architectural images |
 
-**Output:** 4D bounding box for each room (normalized 0-1 range)
+---
 
-## 🚀 Getting Started
+## Step-by-Step Walkthrough
+
+The notebook [`complete_workflow.ipynb`](complete_workflow.ipynb) demonstrates the full pipeline.
+
+### Step 1: Prompt Expansion
+
+```python
+prompt = "A compact 2BHK apartment with a living room, a kitchen next to the living room,
+           two bedrooms, one bathroom, and a front door connected to the living area."
+
+expanded = workflow.expand_prompt(prompt)
+# Original rooms: ['living', 'kitchen', 'bedroom', 'bathroom', 'front_door']
+# Added rooms:  []
+# All rooms:    ['living', 'kitchen', 'bedroom', 'bathroom', 'front_door']
+```
+
+The LLM identifies that all essential rooms are present and no additions are needed. The spatial context is captured: *"The layout suggests a compact, efficient design where the living room acts as the central hub..."*
+
+### Step 2: Explicit Edge Extraction
+
+```python
+extracted_edges = workflow.extract_explicit_edges(sample_prompt, expanded)
+# Extracted explicit edges:
+#   - kitchen -> living (relation: adjacency)
+#   - front_door -> living (relation: connected_to)
+```
+
+Only relationships explicitly stated by the user are extracted — no inference.
+
+### Step 3: Graph Generation
+
+```python
+graph_schema = workflow.generate_graph(expanded, sample_prompt, extracted_edges)
+# Rooms:  bedroom_0, bedroom_1, bathroom_0, front_door_0, kitchen_0, living_0
+# Edges:  living_0 adjacency kitchen_0, front_door_0 connected_to living_0
+```
+
+The canonical graph is generated: 6 rooms, 2 explicit edges. The output is serialized into the canonical text format used as ground truth.
+
+### Step 4: Learned Edge Completion
+
+A trained `EdgeCompletionGNN` sweeps threshold × max-edges to probabilistically add missing but plausible edges (bedroom–living, bathroom–bedroom, bedroom–bedroom). Result:
+
+```
+# Before completion: 2 edges
+# After completion:  7 edges
+# Edges added:       5
+```
+
+A domain-validity and connectivity guarantee ensures every graph is fully connected with architecturally sensible relationships.
+
+### Step 5: Geometry Inference
+
+Sentence-transformers (`all-MiniLM-L6-v2`) encode the user prompt into a 64-dimensional embedding. Dataset-calibrated priors (area, aspect ratio, centroid) are combined with graph-topology-aware directional relaxation and de-overlap passes to assign `area`, `centroid`, and `bbox` to each node.
+
+```
+# Node feature matrix shape: (6, 11)
+# Edge index shape: (2, 14)
+# Edge feature matrix shape: (14, 10)
+```
+
+Output visualization:
+
+*See the NetworkX graph plot in `complete_workflow.ipynb` Cell 21 — the numeric graph is visualized with spring layout, color-coded by room type (living=blue, bedroom=green, bathroom=orange, kitchen=lime).*
+
+### Step 6: Layout Prediction
+
+The `RoughLayoutGNN` (trained in [`model_testing.ipynb`](model_notebook_training/model_testing.ipynb)) takes the numeric graph and predicts 4D bounding boxes per room.
+
+```python
+# RoughLayoutGNN(
+#   (conv1): GINEConv(nn=Sequential(
+#     (0): Linear(in_features=11, out_features=128)
+#     (1): ReLU()
+#     (2): Linear(in_features=128, out_features=128)))
+#   (conv2): GINEConv(...)
+#   (conv3): GINEConv(...)
+#   (head): Sequential(Linear(128→128), ReLU(), Linear(128→4))
+# )
+```
+
+The model is loaded from `best_model.pt` and infers normalized room coordinates in a single forward pass.
+
+### Step 7: Floorplan Rasterization
+
+The predicted layout boxes are converted to RGB control images (`graph_layout_to_rgb`) and fed through **Stable Diffusion v1.5** with a **ControlNet** (`control_v11p_sd15_seg`) conditioned on room segmentation, adjacency lines, and room types:
+
+```python
+prompt = "clean architectural floor plan, thin black walls, white background,
+          rooms separated by walls, door openings between adjacent rooms,
+          2d blueprint, line drawing"
+result = pipe(prompt=prompt, image=control_pil, num_inference_steps=40, ...).images[0]
+```
+
+*See the output in `rough_layout_to_floorplan.ipynb` Cells 20–27 — the control image (Rooms/Adj/Types channels) and final generated floorplan are displayed side by side.*
+
+---
+
+## Project Structure
+
+```
+FloorPlan-Pipeline/
+├── README.md
+├── LICENSE                                  # GNU GPL v3
+├── requirements.txt
+├── best_model.pt                            # Pre-trained RoughLayoutGNN
+├── .env
+│
+├── complete_workflow.ipynb                  # End-to-end pipeline (text → floorplan)
+│
+├── text_to_graph/                           # LLM-based text → graph
+│   ├── __init__.py
+│   ├── schemas.py                           # Pydantic: FloorplanRoom, FloorplanEdge
+│   ├── prompt_expander.py                   # Expands user prompt into room list
+│   ├── edge_extractor.py                    # Extracts explicit edges from prompt
+│   ├── graph_generator.py                   # Generates canonical graph text
+│   ├── edge_completion.py                   # GNN predicts missing edges
+│   ├── workflow.py                          # Orchestrator: FloorplanWorkflow
+│   └── example.py                           # Interactive CLI demo
+│
+├── graphs/                                  # Graph data layer
+│   ├── schema.py                            # RoomNode, RoomEdge, FloorplanGraph
+│   ├── numerical_graph.py                   # Graph → (x, edge_index, edge_attr) tensors
+│   └── for_resplan/                         # ResPlan dataset adapters
+│       ├── resplan_adapter.py
+│       └── serialize_graph.py               # Deterministic canonical serialization
+│
+├── dataset/
+│   ├── resplan_utils.py                     # Plotting, graph-from-plan, geometry utils
+│   └── (ResPlan.pkl)                        # External dataset
+│
+├── scripts/
+│   ├── build_numeric_dataset.py             # Build numeric tensors from ResPlan
+│   ├── build_numeric_subset.py              # Build 100-sample subset
+│   └── train_edge_completion.py             # Train EdgeCompletionGNN
+│
+├── model_notebook_training/
+│   ├── model_testing.ipynb                  # RoughLayoutGNN training + eval
+│   └── rough_layout_to_floorplan.ipynb      # Layout → Stable Diffusion rasterization
+│
+├── tests/
+│   ├── test_text_to_graph.py
+│   ├── test_resplan_graph.py
+│   └── test_resplan_graph_serialization.py
+│
+└── trained_models/                          # Edge completion checkpoint directory
+```
+
+---
+
+## Key Components
+
+### `FloorplanWorkflow` (`text_to_graph/workflow.py`)
+
+Main orchestrator combining all text-to-graph stages:
+
+| Method | Purpose |
+|---|---|
+| `expand_prompt(prompt)` | LLM call → `ExpandedPrompt` with room lists and spatial context |
+| `extract_explicit_edges(prompt, expanded)` | LLM call → `ExplicitEdgeExtraction` |
+| `generate_graph(expanded, prompt, extracted_edges)` | LLM call → `FloorplanGraphSchema`, filtered to explicit edges |
+| `run(user_prompt)` | Full pipeline → `FloorplanGraph` |
+| `run_with_text_output(user_prompt)` | Full pipeline → `(serialized_text, FloorplanGraph)` |
+
+### `RoughLayoutGNN` (`model_testing.ipynb`)
+
+```
+Node features (11D) + Edge features (10D)
+    → GINEConv₁ (11→128) → ReLU
+    → GINEConv₂ (128→128) → ReLU
+    → GINEConv₃ (128→128) → ReLU
+    → MLP head (128→128→4)
+    → [cx, cy, w, h] per room
+```
+
+**Input:** Node features = [6D one-hot room type | area ratio | cx, cy | w, h], Edge features = [3D relation | dx, dy, dist | 4D direction]
+
+**Output:** Normalized [0, 1] bounding boxes — center x, center y, width, height
+
+### `EdgeCompletionGNN` (`text_to_graph/edge_completion.py`)
+
+A 3-layer GINEConv + pairwise MLP head. Trained with binary cross-entropy to predict which node pairs should be connected and what edge type they should have. Provides:
+- Convex hull complement recommendation set
+- Probabilistic selection with connectivity guarantee
+- Degree-capped topological validity fallback
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
-- Python 3.10+ (tested with Python 3.11+)
-- pip or conda for package management
-- An LLM API key (OpenAI, NVIDIA, or compatible API)
+- Python 3.10+
+- LLM API key (NVIDIA AI Endpoints or OpenAI-compatible)
+- CUDA-compatible GPU (recommended for SD rasterization)
 
 ### Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd FloorPlan-Pipeline
-   ```
+```bash
+git clone <repository-url> && cd FloorPlan-Pipeline
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+```
 
-2. **Create a virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+**Environment variables** (`.env`):
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Install additional ML dependencies** (if not in requirements)
-   ```bash
-   pip install torch torchvision torchaudio
-   pip install torch_geometric
-   pip install langchain langchain-openai
-   ```
-
-5. **Set up environment variables**
-   ```bash
-   cp .env.example .env  # Or create .env manually
-   # Add your API credentials to .env:
-   # - OPENAI_API_KEY or NVIDIA_API_KEY
-   # - FLOORPLAN_LLM_MODEL (optional, defaults to Mistral)
-   # - OPENAI_BASE_URL (optional, for custom endpoints)
-   ```
+```bash
+api_key=nvapi-...         # NVIDIA API key
+OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
+FLOORPLAN_LLM_MODEL=mistralai/mistral-small-4-119b-2603
+```
 
 ### Quick Start
 
-#### 1. Using the Complete Workflow Notebook
+**Interactive CLI:**
+```bash
+python text_to_graph/example.py
+```
 
+**Full notebook:**
 ```bash
 jupyter notebook complete_workflow.ipynb
 ```
 
-This notebook demonstrates the full pipeline:
-- Prompt expansion
-- Graph generation
-- Tensor conversion
-- Layout prediction
-- Visualization
-
-#### 2. Using the Python API
-
+**Python API:**
 ```python
 from text_to_graph.workflow import FloorplanWorkflow
 from dotenv import load_dotenv
 import os
 
 load_dotenv()
-
-# Initialize workflow
 workflow = FloorplanWorkflow(
-    api_key=os.getenv("OPENAI_API_KEY"),
-    model="gpt-4o",
-    base_url=os.getenv("OPENAI_BASE_URL")
+    api_key=os.getenv("api_key"),
+    model="mistralai/mistral-small-4-119b-2603",
+    base_url="https://integrate.api.nvidia.com/v1"
 )
 
-# Expand a natural language prompt
-prompt = "A modern 2BHK apartment with a living room, kitchen, two bedrooms, and a bathroom"
-expanded = workflow.expand_prompt(prompt)
-
-# Generate graph
-graph_schema = workflow.generate_graph(expanded, prompt)
-
-# Convert to canonical floorplan graph
-from graphs.schema import RoomNode, RoomEdge, FloorplanGraph
-from graphs.for_resplan.serialize_graph import graph_to_canonical_text
-
-graph = FloorplanGraph(
-    nodes=[RoomNode(id=room.id, type=room.type, role=room.role) for room in graph_schema.rooms],
-    edges=[RoomEdge(src=edge.src, dst=edge.dst, relation=edge.relation, direction=edge.direction) 
-           for edge in graph_schema.edges]
-)
-
-# Serialize to text
-serialized = graph_to_canonical_text(graph)
-print(serialized)
+graph = workflow.run("A compact 2BHK apartment with a living room...")
+print(f"Nodes: {len(graph.nodes)}, Edges: {len(graph.edges)}")
 ```
 
-#### 3. Using the Interactive Example Script
+### Training
 
+**Train Edge Completion GNN:**
 ```bash
-cd text_to_graph
-python example.py
+python scripts/build_numeric_dataset.py    # Build numeric dataset first
+python scripts/train_edge_completion.py --dataset dataset/resplan_numeric.npz
 ```
 
-## 📊 Project Structure
-
-```
-FloorPlan-Pipeline/
-├── README.md                              # This file
-├── LICENSE                                # GNU General Public License v3
-├── requirements.txt                       # Python dependencies
-├── best_model.pt                          # Pre-trained layout prediction model
-├── .env                                   # Environment configuration (API keys)
-├── .env.example                           # Environment template
-│
-├── complete_workflow.ipynb                # End-to-end pipeline demonstration
-│
-├── text_to_graph/                         # LLM-based graph generation
-│   ├── __init__.py
-│   ├── workflow.py                        # Main orchestrator
-│   ├── prompt_expander.py                 # Prompt expansion with LLM
-│   ├── graph_generator.py                 # Graph generation with LLM
-│   ├── schemas.py                         # Pydantic schemas for LLM I/O
-│   └── example.py                         # Interactive example script
-│
-├── graphs/                                # Graph processing and utilities
-│   ├── schema.py                          # Core FloorplanGraph dataclasses
-│   ├── numerical_graph.py                 # Graph → tensor conversion
-│   ├── for_resplan/                       # ResPlan dataset integration
-│   │   ├── resplan_adapter.py
-│   │   └── serialize_graph.py             # Canonical serialization
-│   └── for_rplan/                         # RPlan dataset (legacy)
-│       ├── extract_adjacency.py
-│       ├── rplan_to_graph.py
-│       └── serialize.py
-│
-├── dataset/                               # Dataset utilities
-│   ├── __init__.py
-│   ├── resplan_utils.py                   # ResPlan visualization & processing
-│   └── (ResPlan.pkl - external data, not included)
-│
-├── scripts/                               # Standalone scripts
-│   ├── build_numeric_dataset.py           # Build numeric dataset from ResPlan
-│   └── build_numeric_subset.py            # Build subset for testing
-│
-├── tests/                                 # Test suite
-│   ├── test_text_to_graph.py              # Text-to-graph pipeline tests
-│   ├── test_resplan_graph.py              # Graph object tests
-│   └── test_resplan_graph_serialization.py # Serialization tests
-│
-├── model_notebook_training/               # Model training notebooks
-│   ├── model_testing.ipynb                # Training & evaluation pipeline
-│   └── rough_layout_to_floorplan.ipynb    # Layout visualization
-│
-├── docs/                                  # Documentation
-│   └── MODEL_TESTING_EXPLANATION.md       # Model testing guide
-│
-└── trained_models/                        # Directory for model checkpoints
-```
-
-## 🔑 Key Workflows
-
-### 1. Text-to-Graph Generation
-
-**Module:** `text_to_graph/workflow.py`
-
-```
-User Prompt (text)
-    ↓ FloorplanWorkflow.expand_prompt()
-Room Expansion (with context)
-    ↓ FloorplanWorkflow.generate_graph()
-Graph Schema (rooms + edges)
-    ↓ (Manual conversion)
-FloorplanGraph (canonical)
-    ↓ graph_to_canonical_text()
-Serialized Graph (text)
-```
-
-**Example:**
-```python
-workflow = FloorplanWorkflow(api_key="...", model="gpt-4o")
-expanded = workflow.expand_prompt("compact apartment")
-graph_schema = workflow.generate_graph(expanded, "compact apartment")
-```
-
-### 2. Graph to Numerical Tensors
-
-**Module:** `graphs/numerical_graph.py`
-
-Converts `FloorplanGraph` objects to PyTorch tensors:
-- **Node features** (N × 11): One-hot room types + attributes
-- **Edge index** (2 × E): Node pairs defining connections
-- **Edge attributes** (E × 10): Relationship type, spatial direction
-
-```python
-from graphs.numerical_graph import floorgraph_to_numeric
-import torch
-
-numeric_x, numeric_edge_index, numeric_edge_attr = floorgraph_to_numeric(graph, plan_width=1.0)
-data = Data(
-    x=torch.tensor(numeric_x, dtype=torch.float32),
-    edge_index=torch.tensor(numeric_edge_index, dtype=torch.long),
-    edge_attr=torch.tensor(numeric_edge_attr, dtype=torch.float32),
-)
-```
-
-### 3. Layout Prediction with GNN
-
-**Model:** `RoughLayoutGNN` (defined in notebooks)
-
-```python
-model = RoughLayoutGNN(node_dim=11, edge_dim=10, hidden=128)
-model.load_state_dict(torch.load("best_model.pt"))
-model.eval()
-
-with torch.no_grad():
-    predicted_boxes = model(data).cpu().numpy()
-    # Output: (num_rooms, 4) - [cx, cy, width, height] for each room
-```
-
-## 🧪 Testing
-
-Run the test suite to verify functionality:
-
-```bash
-# Run all tests
-python -m pytest tests/
-
-# Run specific test module
-python -m pytest tests/test_text_to_graph.py
-
-# Run with verbose output
-python -m pytest tests/ -v
-```
-
-**Test Modules:**
-- `test_text_to_graph.py`: Validates prompt expansion and graph generation
-- `test_resplan_graph.py`: Tests graph object creation and validation
-- `test_resplan_graph_serialization.py`: Verifies canonical serialization round-tripping
-
-## 📚 Documentation
-
-- **[MODEL_TESTING_EXPLANATION.md](docs/MODEL_TESTING_EXPLANATION.md)** - Detailed guide to model training, evaluation, and visualization
-- **[complete_workflow.ipynb](complete_workflow.ipynb)** - Interactive demonstration of the full pipeline
-- **[model_testing.ipynb](model_notebook_training/model_testing.ipynb)** - Training and inference walkthrough
-
-## 🔧 Configuration
-
-### Environment Variables
-
-Create a `.env` file in the project root with:
-
-```bash
-# LLM API Configuration
-OPENAI_API_KEY=your-api-key-here
-# OR
-NVIDIA_API_KEY=your-nvidia-api-key-here
-
-# Model Selection (optional)
-FLOORPLAN_LLM_MODEL=mistralai/mistral-small-4-119b-2603
-# Or use OpenAI model
-FLOORPLAN_LLM_MODEL=gpt-4o
-
-# API Endpoint (optional, for custom endpoints)
-OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
-```
-
-### Supported LLM Models
-
-- **OpenAI**: `gpt-4`, `gpt-4o`, `gpt-3.5-turbo`
-- **NVIDIA AI Endpoints**: `mistralai/mistral-small-4-119b-2603`, `meta-llama/llama-3.1-405b-instruct`
-- **Other OpenAI-compatible APIs**: Configure `OPENAI_BASE_URL`
-
-## 🔄 Room Types Supported
-
-Current supported room types:
-- `living` - Living room
-- `bedroom` - Bedroom
-- `kitchen` - Kitchen
-- `bathroom` - Bathroom
-- `balcony` - Balcony/outdoor space
-- `front_door` - Entrance
-
-Room adjacency types:
-- `adjacency` - Rooms are adjacent/neighboring
-- `via_door` - Rooms connected by a door
-
-Spatial directions:
-- `left_of`, `right_of`, `above`, `below` - Relative positioning
-
-## 📈 Performance & Constraints
-
-- **Maximum rooms per floorplan**: ~15-20 (GNN tested up to 100+ rooms with ResPlan data)
-- **Model inference time**: ~50-200ms per floorplan (CPU)
-- **LLM call time**: ~1-3 seconds per step (network-dependent)
-- **Memory requirements**: ~2-4GB for training, ~500MB for inference
-
-## 🤝 Contributing
-
-Contributions are welcome! Areas for enhancement:
-
-- Additional room types and spatial relationships
-- Multi-floor floorplan support
-- Constraint satisfaction improvements
-- Performance optimization
-- Dataset expansion
-- Alternative model architectures
-
-## ⚠️ Known Issues & Limitations
-
-1. **Topology-only generation**: Current text-to-graph stage produces topology without detailed geometry
-2. **Prompt sensitivity**: Results depend on prompt clarity and completeness
-3. **Room vocabulary**: Limited to pre-defined room types
-4. **Layout realism**: GNN may produce unrealistic layouts that require post-processing
-5. **Determinism**: LLM outputs are non-deterministic (can be controlled with `temperature=0`)
-
-## 📋 Requirements
-
-See [requirements.txt](requirements.txt) for complete dependency list. Key packages:
-
-- `torch` & `torch_geometric` - Neural network and GNN framework
-- `langchain` & `langchain-openai` - LLM orchestration
-- `numpy`, `pandas` - Data processing
-- `matplotlib`, `networkx` - Visualization
-- `pydantic` - Schema validation
-- `jupyter` - Interactive notebooks
-
-## 📄 License
-
-This project is licensed under the **GNU General Public License v3 (GPLv3)** - see [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- ResPlan dataset team for spatial relationship annotations
-- PyTorch Geometric team for GNN framework
-- LangChain community for LLM orchestration patterns
-
-## 📞 Support
-
-For issues, questions, or feedback:
-
-1. Check existing documentation in `docs/`
-2. Review test cases in `tests/`
-3. Examine notebook demonstrations in `.ipynb` files
-4. Create an issue with detailed reproduction steps
+**Train Layout GNN:** Follow the cells in [`model_testing.ipynb`](model_notebook_training/model_testing.ipynb) — dataset construction → train/test split → training with composite loss → early stopping → export.
 
 ---
 
-**Last Updated:** April 2026  
-**Status:** Active Development
+## Room Vocabulary
+
+| Type | Description |
+|---|---|
+| `living` | Living room, main gathering space |
+| `kitchen` | Kitchen / cooking area |
+| `bedroom` | Bedroom |
+| `bathroom` | Bathroom |
+| `balcony` | Balcony / outdoor space |
+| `front_door` | Entry / exit point |
+| `dining` | Dedicated dining room |
+
+**Relations:** `adjacency`, `via_door`, `direct`
+
+**Directions:** `left_of`, `right_of`, `above`, `below`
+
+---
+
+## Configuration
+
+| Env Variable | Default | Description |
+|---|---|---|
+| `api_key` / `NVIDIA_API_KEY` | — | LLM API key |
+| `FLOORPLAN_LLM_MODEL` | `mistralai/mistral-small-4-119b-2603` | LLM model name |
+| `OPENAI_BASE_URL` | `https://integrate.api.nvidia.com/v1` | API endpoint |
+| `EDGE_COMPLETION_MODEL_PATH` | `trained_models/best_edge_completion.pt` | Edge completion checkpoint |
+| `EDGE_COMPLETION_THRESHOLD` | `0.30` | Edge prediction confidence threshold |
+| `EDGE_COMPLETION_MAX_ADDED` | `24` | Max edges to add during completion |
+
+---
+
+## Testing
+
+```bash
+python -m pytest tests/ -v
+```
+
+---
+
+## Notebook Reference
+
+| Notebook | Description | Key Outputs |
+|---|---|---|
+| [`complete_workflow.ipynb`](complete_workflow.ipynb) | End-to-end: text → graph → geometry → layout | Canonical serialization, NetworkX graph visualization, node feature matrix |
+| [`model_testing.ipynb`](model_notebook_training/model_testing.ipynb) | RoughLayoutGNN training + evaluation | Training loss curves, GT-vs-pred box overlays on ResPlan floorplans, predicted layout plots |
+| [`rough_layout_to_floorplan.ipynb`](model_notebook_training/rough_layout_to_floorplan.ipynb) | Layout → Stable Diffusion rasterization | Control image channels (Rooms/Adjacency/Types), SD + ControlNet generated floorplan images |
+
+---
+
+## License
+
+GNU General Public License v3 — see [LICENSE](LICENSE).
+
+## Status
+
+**Topology pipeline** (text → graph → edge completion): Complete.  
+**Geometry inference** (graph → numeric tensors): Complete.  
+**Layout prediction** (numeric tensors → room boxes): Complete.  
+**Rasterization** (boxes → floorplan image): Complete (Stable Diffusion + ControlNet).
+
+**Downstream work:** Polygon-based layout refinement (`PolygonRefineGNN` — in progress), multi-floor support, 3D extrusion.
