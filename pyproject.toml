@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "floorplan-pipeline"
+version = "0.2.0"
+description = "End-to-end system that converts natural language descriptions into structured floorplan graphs with predicted spatial layouts and architectural renderings"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+authors = [
+    {name = "FloorPlan Pipeline Contributors"}
+]
+keywords = [
+    "floorplan",
+    "graph-neural-network",
+    "stable-diffusion",
+    "controlnet",
+    "llm",
+    "layout-prediction",
+    "architecture",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "torch-geometric>=2.4",
+    "numpy>=1.24",
+    "diffusers>=0.25",
+    "langchain-core>=0.2",
+    "langchain-openai>=0.1",
+    "pydantic>=2.0",
+    "python-dotenv>=0.19",
+    "sentence-transformers>=2.2",
+    "requests>=2.28",
+    "networkx>=3.0",
+    "matplotlib>=3.7",
+    "shapely>=2.0",
+    "geopandas>=1.0",
+    "opencv-python>=4.8",
+    "pillow>=10.0",
+    "pandas>=2.0",
+    "pyogrio>=0.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter>=1.0",
+    "ipykernel>=6.0",
+    "pytest>=7.0",
+    "tqdm>=4.60",
+]
+
+[project.urls]
+Homepage = "https://github.com/dexterhere04/FloorPlan-Pipeline"
+Repository = "https://github.com/dexterhere04/FloorPlan-Pipeline"
+Issues = "https://github.com/dexterhere04/FloorPlan-Pipeline/issues"
+Documentation = "https://github.com/dexterhere04/FloorPlan-Pipeline/tree/main/docs"
+
+[tool.setuptools]
+packages = [
+    "text_to_graph",
+    "graphs",
+    "graphs.for_resplan",
+    "dataset",
+]
+
+
